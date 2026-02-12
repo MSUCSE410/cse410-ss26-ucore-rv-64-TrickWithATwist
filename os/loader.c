@@ -51,6 +51,11 @@ int run_all_app()
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
+		//init sys call time to 0
+		memset(p->syscall_times, 0, sizeof(p->syscall_times));
+		//start time will be set when process first runs in scheduler
+		p->start_time = 0;
+
 	}
 	return 0;
 }
