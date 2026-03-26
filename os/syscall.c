@@ -52,6 +52,29 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofd
 /*
 * LAB1: you may need to define sys_task_info here
 */
+uint64 sys_task_info(TaskInfo *ti)
+{
+	//Get the currently running process
+	struct proc *p = curr_proc();
+	
+	//Fill in the status
+	ti->status = Running;
+	
+	/*Copy the syscall counts from the process to the TaskInfo structure
+	  this copies all 500 values from p->syscall_times to ti->syscall_times */
+	for (int i = 0; i < 500; i++) {
+		ti->syscall_times[i] = p->syscall_times[i];
+	}
+	
+	/* Calculate runtime in milliseconds
+	get_cycle() returns current time in CPU cycles
+	p->start_time is when the process first started (also in cycles) */
+	/* Convert cycles to milliseconds
+	 CPU_FREQ is cycles per second, so divide by (CPU_FREQ / 1000) to get milliseconds */
+	ti->time = ((get_cycle()) * 1000 )/CPU_FREQ;
+	
+	return 0;  //return 0
+}
 
 extern char trap_page[];
 

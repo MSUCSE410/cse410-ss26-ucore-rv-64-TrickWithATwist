@@ -33,6 +33,10 @@ void proc_init(void)
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
+		//Initialize syscall count array to all zeros
+		memset(p->syscall_times, 0, sizeof(p->syscall_times));
+		//Start time will be set when process first runs
+		p->start_time = 0;
 	}
 	idle.kstack = (uint64)boot_stack_top;
 	idle.pid = 0;
