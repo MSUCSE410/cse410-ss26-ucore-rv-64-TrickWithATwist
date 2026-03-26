@@ -49,6 +49,89 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofd
 // TODO: add support for mmap and munmap syscall.
 // hint: read through docstrings in vm.c. Watching CH4 video may also help.
 // Note the return value and PTE flags (especially U,X,W,R)
+uint64 sys_mmap(uint64 start, uint64 len, int port)
+{
+	// Validate parameters
+	if (len == 0 || len > 1024 * 1024 * 1024) {  // Max 1GB
+		return -1;
+	}
+	
+	// Validate port bits (only bits 0-2 should be set)
+	if ((port & ~0x7) != 0) {
+		return -1;
+	}
+	
+	// Must have at least one permission bit set
+	if ((port & 0x7) == 0) {
+		return -1;
+	}
+	
+	struct proc *p = curr_proc();
+	
+	// Convert port bits to PTE permission flags
+	int perm = PTE_U;  // User accessible
+	if (port & 0x1) perm |= PTE_R;  // Readable
+	if (port & 0x2) perm |= PTE_W;  // Writable
+	if (port & 0x4) perm |= PTE_X;  // Executable
+	
+	// Round to page boundaries
+	uint64 start_page = PGROUNDDOWN(start);
+	uint64 end_page = PGROUNDUP(start + len);
+	
+	// Map each page
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		// Check if already mapped
+		if (walkaddr(p->pagetable, addr) != 0) {
+			return -1;
+		}
+		
+		// Allocate physical page
+		void *pa = kalloc();
+		if (pa == 0) {
+			return -1;
+		}
+		
+		// Clear the page
+		memset(pa, 0, PGSIZE);
+		
+		// Map the page
+		if (mappages(p->pagetable, addr, PGSIZE, (uint64)pa, perm) != 0) {
+			kfree(pa);
+			return -1;
+		}
+	}
+	
+	return 0;
+}
+
+uint64 sys_munmap(uint64 start, uint64 len)
+{
+	if (len == 0) {
+		return -1;
+	}
+	
+	struct proc *p = curr_proc();
+	
+	// Round to page boundaries
+	uint64 start_page = PGROUNDDOWN(start);
+	uint64 end_page = PGROUNDUP(start + len);
+	
+	// First pass: verify all pages are mapped
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		if (walkaddr(p->pagetable, addr) == 0) {
+			return -1;  // Unmapped page found
+		}
+	}
+	
+	// Second pass: unmap all pages
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		uvmunmap(p->pagetable, addr, 1, 1);
+	}
+	
+	return 0;
+}
+
+
 /*
 * LAB1: you may need to define sys_task_info here
 */
