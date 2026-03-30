@@ -32,47 +32,60 @@ uint64 sys_sched_yield()
 	return 0;
 }
 
-uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofday in pagetable. (VA to PA)
+uint64 sys_gettimeofday(uint64 val_va, int _tz) // TODO: implement sys_gettimeofday in pagetable. (VA to PA)
 {
 	// YOUR CODE
-	val->sec = 0;
-	val->usec = 0;
-
-	/* The code in `ch3` will leads to memory bugs*/
-
-	// uint64 cycle = get_cycle();
-	// val->sec = cycle / CPU_FREQ;
-	// val->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+	struct proc *p = curr_proc();
+	
+	// Translate virtual address to physical address
+	uint64 val_pa = useraddr(p->pagetable, val_va);
+	if (val_pa == 0) {
+		return -1;  // Translation failed - invalid address
+	}
+	
+	// Now we can safely access the physical memory
+	TimeVal *val = (TimeVal *)val_pa;
+	
+	// Fill in the time
+	uint64 cycle = get_cycle();
+	val->sec = cycle / CPU_FREQ;
+	val->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+	
 	return 0;
 }
 
 // TODO: add support for mmap and munmap syscall.
 // hint: read through docstrings in vm.c. Watching CH4 video may also help.
 // Note the return value and PTE flags (especially U,X,W,R)
-uint64 sys_mmap(uint64 start, uint64 len, int port)
+uint64 sys_mmap(uint64 start, uint64 len, int prot, int flags, int fd)
 {
 	// Validate parameters
 	if (len == 0 || len > 1024 * 1024 * 1024) {  // Max 1GB
 		return -1;
 	}
+
+	// Reject if start is not page-aligned
+	if (start != PGROUNDDOWN(start)) {
+		return -1;
+	}
 	
-	// Validate port bits (only bits 0-2 should be set)
-	if ((port & ~0x7) != 0) {
+	// Validate prot bits (only bits 0-2 should be set)
+	if ((prot & ~0x7) != 0) {
 		return -1;
 	}
 	
 	// Must have at least one permission bit set
-	if ((port & 0x7) == 0) {
+	if ((prot & 0x7) == 0) {
 		return -1;
 	}
 	
 	struct proc *p = curr_proc();
 	
-	// Convert port bits to PTE permission flags
+	// Convert prot bits to PTE permission flags
 	int perm = PTE_U;  // User accessible
-	if (port & 0x1) perm |= PTE_R;  // Readable
-	if (port & 0x2) perm |= PTE_W;  // Writable
-	if (port & 0x4) perm |= PTE_X;  // Executable
+	if (prot & 0x1) perm |= PTE_R;  // Readable
+	if (prot & 0x2) perm |= PTE_W;  // Writable
+	if (prot & 0x4) perm |= PTE_X;  // Executable
 	
 	// Round to page boundaries
 	uint64 start_page = PGROUNDDOWN(start);
@@ -101,7 +114,7 @@ uint64 sys_mmap(uint64 start, uint64 len, int port)
 		}
 	}
 	
-	return 0;
+	return 0;  // Success
 }
 
 uint64 sys_munmap(uint64 start, uint64 len)
@@ -112,7 +125,17 @@ uint64 sys_munmap(uint64 start, uint64 len)
 	
 	struct proc *p = curr_proc();
 	
-	// Round to page boundaries
+	// Reject if start is not page-aligned
+	if (start != PGROUNDDOWN(start)) {
+		return -1;
+	}
+	
+	// Reject if length doesn't result in full pages
+	if (PGROUNDUP(start + len) != start + len) {
+		return -1;
+	}
+	
+	// Round to page boundaries (should already be aligned now)
 	uint64 start_page = PGROUNDDOWN(start);
 	uint64 end_page = PGROUNDUP(start + len);
 	
@@ -135,34 +158,38 @@ uint64 sys_munmap(uint64 start, uint64 len)
 /*
 * LAB1: you may need to define sys_task_info here
 */
-uint64 sys_task_info(TaskInfo *ti)
+uint64 sys_task_info(uint64 ti_va)
 {
-	//Get the currently running process
 	struct proc *p = curr_proc();
 	
-	//Fill in the status
+	// Translate virtual address to physical address
+	uint64 ti_pa = useraddr(p->pagetable, ti_va);
+	if (ti_pa == 0) {
+		return -1;  // Translation failed - invalid address
+	}
+	
+	// Now we can safely access the physical memory
+	TaskInfo *ti = (TaskInfo *)ti_pa;
+	
+	// Fill in the status
 	ti->status = Running;
 	
-	/*Copy the syscall counts from the process to the TaskInfo structure
-	  this copies all 500 values from p->syscall_times to ti->syscall_times */
+	// Copy the syscall counts from the process to the TaskInfo structure
 	for (int i = 0; i < 500; i++) {
 		ti->syscall_times[i] = p->syscall_times[i];
 	}
 	
-	/* Calculate runtime in milliseconds
-	get_cycle() returns current time in CPU cycles
-	p->start_time is when the process first started (also in cycles) */
-	/* Convert cycles to milliseconds
-	 CPU_FREQ is cycles per second, so divide by (CPU_FREQ / 1000) to get milliseconds */
-	ti->time = ((get_cycle()) * 1000 )/CPU_FREQ;
+	// Calculate runtime: time since process started (not since boot!)
+	ti->time = ((get_cycle() - p->start_time) * 1000) / CPU_FREQ;
 	
-	return 0;  //return 0
+	return 0;
 }
 
 extern char trap_page[];
 
 void syscall()
 {
+	struct proc *p = curr_proc();
 	struct trapframe *trapframe = curr_proc()->trapframe;
 	int id = trapframe->a7, ret;
 	uint64 args[6] = { trapframe->a0, trapframe->a1, trapframe->a2,
@@ -172,6 +199,11 @@ void syscall()
 	/*
 	* LAB1: you may need to update syscall counter for task info here
 	*/
+	if (id < 500) {
+		p->syscall_times[id]++;
+	}	
+
+
 	switch (id) {
 	case SYS_write:
 		ret = sys_write(args[0], args[1], args[2]);
@@ -183,7 +215,19 @@ void syscall()
 		ret = sys_sched_yield();
 		break;
 	case SYS_gettimeofday:
-		ret = sys_gettimeofday((TimeVal *)args[0], args[1]);
+		ret = sys_gettimeofday(args[0], args[1]);
+		break;
+	case SYS_task_info:
+		ret = sys_task_info(args[0]);
+		break;
+	case SYS_mmap:
+		ret = sys_mmap(args[0], args[1], args[2], args[3], args[4]);
+		break;
+	case SYS_munmap:
+		ret = sys_munmap(args[0], args[1]);
+		break;
+	case SYS_getpid:
+		ret = p->pid;
 		break;
 	/*
 	* LAB1: you may need to add SYS_taskinfo case here
