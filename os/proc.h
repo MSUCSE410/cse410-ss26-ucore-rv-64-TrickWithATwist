@@ -8,6 +8,8 @@
 #define NPROC (512)
 #define FD_BUFFER_SIZE (16)
 #define MAX_SYSCALL_NUM 500
+#define BIG_STRIDE 0x7FFFFFFF  // Large constant for stride scheduling
+
 
 
 struct file;
@@ -51,6 +53,12 @@ struct proc {
 	// PROJECT 1 & 2 ADDITIONS:
 	unsigned int syscall_times[500];  // Track syscall usage
 	uint64 start_time;                // Process start time in cycles
+
+	// PROJECT 3: Stride scheduling
+	uint64 stride;      // Current stride value
+	uint64 pass;        // Pass value (BIG_STRIDE / priority)
+	int priority;       // Process priority (default 16)
+
 };
 
 int cpuid();

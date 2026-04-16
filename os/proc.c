@@ -99,6 +99,12 @@ found:
 	memset(p->syscall_times, 0, sizeof(p->syscall_times));
 	p->start_time = 0;
 
+	// PROJECT 3: Initialize stride scheduling
+	p->stride = 0;
+	p->priority = 16;  // Default priority
+	p->pass = BIG_STRIDE / p->priority;
+
+
 	return p;
 }
 
@@ -110,36 +116,45 @@ found:
 void scheduler()
 {
 	struct proc *p;
+	struct proc *min_stride_proc;
+	uint64 min_stride;
+	
 	for (;;) {
-		/*int has_proc = 0;
+		// Find the runnable process with the smallest stride
+		min_stride_proc = NULL;
+		min_stride = UINT64_MAX;
+		
 		for (p = pool; p < &pool[NPROC]; p++) {
-			if (p->state == RUNNABLE) {
-				has_proc = 1;
-				tracef("swtich to proc %d", p - pool);
-				p->state = RUNNING;
-				current_proc = p;
-				swtch(&idle.context, &p->context);
+			if (p->state == RUNNABLE && p->stride < min_stride) {
+				min_stride = p->stride;
+				min_stride_proc = p;
 			}
 		}
-		if(has_proc == 0) {
-			panic("all app are over!\n");
-		}*/
-		p = fetch_task();
-		if (p == NULL) {
+		
+		// If no runnable process found, all apps are done
+		if (min_stride_proc == NULL) {
 			panic("all app are over!\n");
 		}
-
-		// PROJECT 1: Set start_time when process first runs
+		
+		p = min_stride_proc;
+		
+		// Set start_time when process first runs
 		if (p->start_time == 0) {
 			p->start_time = get_cycle();
 		}
-
-		tracef("swtich to proc %d", p - pool);
+		
+		tracef("swtich to proc %d (stride=%d, priority=%d)", 
+		       p - pool, p->stride, p->priority);
+		
+		// Update stride BEFORE running the process
+		p->stride += p->pass;
+		
 		p->state = RUNNING;
 		current_proc = p;
 		swtch(&idle.context, &p->context);
 	}
 }
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -160,7 +175,8 @@ void sched()
 void yield()
 {
 	current_proc->state = RUNNABLE;
-	add_task(current_proc);
+	// Don't add to queue - stride scheduler will pick it
+	// add_task(current_proc);  // REMOVE THIS LINE
 	sched();
 }
 

@@ -224,13 +224,62 @@ uint64 sys_munmap(uint64 start, uint64 len)
 
 uint64 sys_spawn(uint64 va)
 {
-	// TODO: your job is to complete the sys call
-	return -1;
+	struct proc *p = curr_proc();
+	
+	// Get the program name from user space
+	char name[200];
+	if (copyinstr(p->pagetable, name, va, 200) < 0) {
+		return -1;  // Invalid name pointer
+	}
+	
+	debugf("sys_spawn: %s\n", name);
+	
+	// Find the program ID by name
+	int id = get_id_by_name(name);
+	if (id < 0) {
+		return -1;  // Program not found
+	}
+	
+	// Allocate a new process
+	struct proc *np = allocproc();
+	if (np == NULL) {
+		return -1;  // Process pool full
+	}
+	
+	// Load the program into the new process
+	if (loader(id, np) < 0) {
+		freeproc(np);
+		return -1;  // Loading failed
+	}
+	
+	// Set parent
+	np->parent = p;
+	
+	// Make it runnable and add to task queue
+	np->state = RUNNABLE;
+	add_task(np);
+	
+	// Return child PID
+	return np->pid;
 }
 
-uint64 sys_set_priority(long long prio){
-    // TODO: your job is to complete the sys call
-    return -1;
+
+uint64 sys_set_priority(int64 prio)
+{
+	// Validate priority range [2, INT64_MAX]
+	if (prio < 2) {
+		return -1;
+	}
+	
+	struct proc *p = curr_proc();
+	
+	// Update priority
+	p->priority = prio;
+	
+	// Recalculate pass value
+	p->pass = BIG_STRIDE / prio;
+	
+	return prio;
 }
 
 
@@ -292,6 +341,9 @@ void syscall()
 		break;
 	case SYS_munmap:  // PROJECT 2: Add this case
 		ret = sys_munmap(args[0], args[1]);
+		break;
+	case SYS_setpriority:  // ADD THIS CASE
+		ret = sys_set_priority(args[0]);
 		break;
 	default:
 		ret = -1;
