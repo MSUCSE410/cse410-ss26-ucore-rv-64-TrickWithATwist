@@ -51,11 +51,18 @@ uint64 sys_sched_yield()
 uint64 sys_gettimeofday(uint64 val, int _tz)
 {
 	struct proc *p = curr_proc();
+	
+	// PROJECT 2: Translate virtual address to physical
+	uint64 val_pa = useraddr(p->pagetable, val_va);
+	if (val_pa == 0) {
+		return -1;
+	}
+	
+	TimeVal *val = (TimeVal *)val_pa;
 	uint64 cycle = get_cycle();
-	TimeVal t;
-	t.sec = cycle / CPU_FREQ;
-	t.usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
-	copyout(p->pagetable, val, (char *)&t, sizeof(TimeVal));
+	val->sec = cycle / CPU_FREQ;
+	val->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+	
 	return 0;
 }
 
@@ -92,6 +99,129 @@ uint64 sys_wait(int pid, uint64 va)
 	return wait(pid, code);
 }
 
+uint64 sys_task_info(uint64 ti_va)
+{
+	struct proc *p = curr_proc();
+	
+	// Translate virtual address to physical address
+	uint64 ti_pa = useraddr(p->pagetable, ti_va);
+	if (ti_pa == 0) {
+		return -1;
+	}
+	
+	TaskInfo *ti = (TaskInfo *)ti_pa;
+	
+	// Fill in the status
+	ti->status = Running;
+	
+	// Copy syscall counts
+	for (int i = 0; i < 500; i++) {
+		ti->syscall_times[i] = p->syscall_times[i];
+	}
+	
+	// Calculate runtime since process started
+	ti->time = ((get_cycle() - p->start_time) * 1000) / CPU_FREQ;
+	
+	return 0;
+}
+
+uint64 sys_mmap(uint64 start, uint64 len, int prot, int flags, int fd)
+{
+	// Validate parameters
+	if (len == 0 || len > 1024 * 1024 * 1024) {
+		return -1;
+	}
+	
+	// Reject if start is not page-aligned
+	if (start != PGROUNDDOWN(start)) {
+		return -1;
+	}
+	
+	// Validate prot bits (only bits 0-2 should be set)
+	if ((prot & ~0x7) != 0) {
+		return -1;
+	}
+	
+	// Must have at least one permission bit set
+	if ((prot & 0x7) == 0) {
+		return -1;
+	}
+	
+	struct proc *p = curr_proc();
+	
+	// Convert prot bits to PTE permission flags
+	int perm = PTE_U;
+	if (prot & 0x1) perm |= PTE_R;
+	if (prot & 0x2) perm |= PTE_W;
+	if (prot & 0x4) perm |= PTE_X;
+	
+	// Round to page boundaries
+	uint64 start_page = PGROUNDDOWN(start);
+	uint64 end_page = PGROUNDUP(start + len);
+	
+	// Map each page
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		// Check if already mapped
+		if (walkaddr(p->pagetable, addr) != 0) {
+			return -1;
+		}
+		
+		// Allocate physical page
+		void *pa = kalloc();
+		if (pa == 0) {
+			return -1;
+		}
+		
+		// Clear the page
+		memset(pa, 0, PGSIZE);
+		
+		// Map the page
+		if (mappages(p->pagetable, addr, PGSIZE, (uint64)pa, perm) != 0) {
+			kfree(pa);
+			return -1;
+		}
+	}
+	
+	return 0;
+}
+
+uint64 sys_munmap(uint64 start, uint64 len)
+{
+	if (len == 0) {
+		return -1;
+	}
+	
+	struct proc *p = curr_proc();
+	
+	// Reject if start is not page-aligned
+	if (start != PGROUNDDOWN(start)) {
+		return -1;
+	}
+	
+	// Reject if length doesn't result in full pages
+	if (PGROUNDUP(start + len) != start + len) {
+		return -1;
+	}
+	
+	// Round to page boundaries
+	uint64 start_page = PGROUNDDOWN(start);
+	uint64 end_page = PGROUNDUP(start + len);
+	
+	// First pass: verify all pages are mapped
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		if (walkaddr(p->pagetable, addr) == 0) {
+			return -1;
+		}
+	}
+	
+	// Second pass: unmap all pages
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		uvmunmap(p->pagetable, addr, 1, 1);
+	}
+	
+	return 0;
+}
+
 uint64 sys_spawn(uint64 va)
 {
 	// TODO: your job is to complete the sys call
@@ -108,12 +238,19 @@ extern char trap_page[];
 
 void syscall()
 {
-	struct trapframe *trapframe = curr_proc()->trapframe;
+	struct proc *p = curr_proc();
+	struct trapframe *trapframe = p->trapframe;
 	int id = trapframe->a7, ret;
 	uint64 args[6] = { trapframe->a0, trapframe->a1, trapframe->a2,
 			   trapframe->a3, trapframe->a4, trapframe->a5 };
 	tracef("syscall %d args = [%x, %x, %x, %x, %x, %x]", id, args[0],
 	       args[1], args[2], args[3], args[4], args[5]);
+	
+	// PROJECT 1: Update syscall counter
+	if (id < 500) {
+		p->syscall_times[id]++;
+	}
+	
 	switch (id) {
 	case SYS_write:
 		ret = sys_write(args[0], args[1], args[2]);
@@ -123,7 +260,6 @@ void syscall()
 		break;
 	case SYS_exit:
 		sys_exit(args[0]);
-		// __builtin_unreachable();
 	case SYS_sched_yield:
 		ret = sys_sched_yield();
 		break;
@@ -136,7 +272,7 @@ void syscall()
 	case SYS_getppid:
 		ret = sys_getppid();
 		break;
-	case SYS_clone: // SYS_fork
+	case SYS_clone: //fork
 		ret = sys_clone();
 		break;
 	case SYS_execve:
@@ -147,6 +283,15 @@ void syscall()
 		break;
 	case SYS_spawn:
 		ret = sys_spawn(args[0]);
+		break;
+	case SYS_task_info:  // PROJECT 1: Add this case
+		ret = sys_task_info(args[0]);
+		break;
+	case SYS_mmap:  // PROJECT 2: Add this case
+		ret = sys_mmap(args[0], args[1], args[2], args[3], args[4]);
+		break;
+	case SYS_munmap:  // PROJECT 2: Add this case
+		ret = sys_munmap(args[0], args[1]);
 		break;
 	default:
 		ret = -1;

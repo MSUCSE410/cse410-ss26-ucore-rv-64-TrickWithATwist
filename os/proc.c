@@ -4,6 +4,7 @@
 #include "trap.h"
 #include "vm.h"
 #include "queue.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];
@@ -32,6 +33,10 @@ void proc_init()
 		p->state = UNUSED;
 		p->kstack = (uint64)kstack[p - pool];
 		p->trapframe = (struct trapframe *)trapframe[p - pool];
+
+		// PROJECT 1 & 2: Initialize new fields
+		memset(p->syscall_times, 0, sizeof(p->syscall_times));
+		p->start_time = 0;
 	}
 	idle.kstack = (uint64)boot_stack_top;
 	idle.pid = IDLE_PID;
@@ -89,6 +94,11 @@ found:
 	memset((void *)p->trapframe, 0, TRAP_PAGE_SIZE);
 	p->context.ra = (uint64)usertrapret;
 	p->context.sp = p->kstack + KSTACK_SIZE;
+
+	// PROJECT 1 & 2: Initialize new fields
+	memset(p->syscall_times, 0, sizeof(p->syscall_times));
+	p->start_time = 0;
+
 	return p;
 }
 
@@ -118,6 +128,12 @@ void scheduler()
 		if (p == NULL) {
 			panic("all app are over!\n");
 		}
+
+		// PROJECT 1: Set start_time when process first runs
+		if (p->start_time == 0) {
+			p->start_time = get_cycle();
+		}
+
 		tracef("swtich to proc %d", p - pool);
 		p->state = RUNNING;
 		current_proc = p;
