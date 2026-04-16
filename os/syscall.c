@@ -53,15 +53,15 @@ uint64 sys_gettimeofday(uint64 val, int _tz)
 	struct proc *p = curr_proc();
 	
 	// PROJECT 2: Translate virtual address to physical
-	uint64 val_pa = useraddr(p->pagetable, val_va);
+	uint64 val_pa = useraddr(p->pagetable, val);  // Change val_va to val
 	if (val_pa == 0) {
 		return -1;
 	}
 	
-	TimeVal *val = (TimeVal *)val_pa;
+	TimeVal *val_ptr = (TimeVal *)val_pa;  // Change variable name to val_ptr
 	uint64 cycle = get_cycle();
-	val->sec = cycle / CPU_FREQ;
-	val->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+	val_ptr->sec = cycle / CPU_FREQ;
+	val_ptr->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
 	
 	return 0;
 }
@@ -264,7 +264,7 @@ uint64 sys_spawn(uint64 va)
 }
 
 
-uint64 sys_set_priority(int64 prio)
+uint64 sys_set_priority(long long prio)  // Change int64 to long long
 {
 	// Validate priority range [2, INT64_MAX]
 	if (prio < 2) {

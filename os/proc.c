@@ -5,6 +5,7 @@
 #include "vm.h"
 #include "queue.h"
 #include "timer.h"
+#include <stdint.h>  
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];

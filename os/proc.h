@@ -77,6 +77,7 @@ struct proc *allocproc();
 int fdalloc(struct file *);
 // swtch.S
 void swtch(struct context *, struct context *);
+void freeproc(struct proc *);
 
 typedef enum {
 	UnInit,
