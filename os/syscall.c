@@ -239,27 +239,41 @@ uint64 sys_spawn(uint64 va)
 	if (id < 0) {
 		return -1;  // Program not found
 	}
+	// This looks up the program in the compiled-in app list
 	
 	// Allocate a new process
 	struct proc *np = allocproc();
 	if (np == NULL) {
 		return -1;  // Process pool full
 	}
+	// allocproc() creates:
+	//   - New PID
+	//   - New page table (separate virtual memory!)
+	//   - New trapframe (for saving registers)
+	//   - New kernel stack
 	
 	// Load the program into the new process
 	if (loader(id, np) < 0) {
 		freeproc(np);
 		return -1;  // Loading failed
 	}
+	// loader() does:
+	//   - Copies program code into new page table
+	//   - Sets up stack
+	//   - Sets instruction pointer (epc) to program start
 	
-	// Set parent
+	// STEP 5: Set up parent-child relationship
 	np->parent = p;
+	// This allows wait() to work - parent can wait for child
+
 	
 	// Make it runnable and add to task queue
 	np->state = RUNNABLE;
 	add_task(np);
+	// Scheduler can now run it!
+
 	
-	// Return child PID
+	// STEP 7: Return child's PID to parent
 	return np->pid;
 }
 
