@@ -192,7 +192,7 @@ void ivalid(struct inode *ip)
 		ip->type = dip->type;
 		ip->size = dip->size;
 		// LAB4: You may need to get lint count here
-		ip->nlink = dip->nlink; //lint count
+		ip->nlink = dip->nlink > 0 ? dip->nlink : 1; //lint count
 		memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
 		brelse(bp);
 		ip->valid = 1;

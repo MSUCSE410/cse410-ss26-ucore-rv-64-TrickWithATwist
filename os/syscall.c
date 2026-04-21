@@ -160,7 +160,7 @@ uint64 sys_spawn(uint64 va)
 	iput(ip);
 	np->parent = p;
 	np->state = RUNNABLE;
-	add_task(np);
+	//add_task(np); remove
 	return np->pid;
 }
 

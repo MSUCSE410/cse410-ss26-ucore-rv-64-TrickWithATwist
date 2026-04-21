@@ -125,40 +125,31 @@ int init_stdio(struct proc *p)
 //    via swtch back to the scheduler.
 void scheduler()
 {
-	struct proc *p;
-	struct proc *min_stride_proc;
-	uint64 min_stride;
-	
-	for (;;) {
-		min_stride_proc = NULL;
-		min_stride = 0xFFFFFFFFFFFFFFFFULL;
-		
-		for (p = pool; p < &pool[NPROC]; p++) {
-			if (p->state == RUNNABLE && p->stride < min_stride) {
-				min_stride = p->stride;
-				min_stride_proc = p;
-			}
-		}
-		
-		if (min_stride_proc == NULL) {
-			panic("all app are over!\n");
-		}
-		
-		p = min_stride_proc;
-		
-		if (p->start_time == 0) {
-			p->start_time = get_cycle();
-		}
-		
-		tracef("swtich to proc %d (stride=%d, priority=%d)", 
-		       p - pool, p->stride, p->priority);
-		
-		p->stride += p->pass;
-		p->state = RUNNING;
-		current_proc = p;
-		swtch(&idle.context, &p->context);
-	}
+        struct proc *p;
+        for (;;) {
+                // Find the runnable proc with minimum stride in the pool
+                struct proc *min_p = NULL;
+                for (p = pool; p < &pool[NPROC]; p++) {
+                        if (p->state == RUNNABLE) {
+                                if (min_p == NULL || p->stride < min_p->stride) {
+                                        min_p = p;
+                                }
+                        }
+                }
+                if (min_p == NULL) {
+                        panic("all app are over!\n");
+                }
+                if (min_p->start_time == 0) {
+                        min_p->start_time = get_cycle();
+                }
+                min_p->stride += min_p->pass;
+                min_p->state = RUNNING;
+                current_proc = min_p;
+                tracef("swtich to proc %d", min_p - pool);
+                swtch(&idle.context, &min_p->context);
+        }
 }
+
 
 
 // Switch to scheduler.  Must hold only p->lock
@@ -194,15 +185,16 @@ void freepagetable(pagetable_t pagetable, uint64 max_page)
 
 void freeproc(struct proc *p)
 {
-	if (p->pagetable)
-		freepagetable(p->pagetable, p->max_page);
-	p->pagetable = 0;
-	for (int i = 0; i > FD_BUFFER_SIZE; i++) {
-		if (p->files[i] != NULL) {
-			fileclose(p->files[i]);
-		}
-	}
-	p->state = UNUSED;
+        if (p->pagetable)
+                freepagetable(p->pagetable, p->max_page);
+        p->pagetable = 0;
+        for (int i = 0; i < FD_BUFFER_SIZE; i++) {
+                if (p->files[i] != NULL) {
+                        fileclose(p->files[i]);
+                        p->files[i] = NULL;
+                }
+        }
+        p->state = UNUSED;
 }
 
 int fork()
@@ -233,7 +225,7 @@ int fork()
 	np->trapframe->a0 = 0;
 	np->parent = p;
 	np->state = RUNNABLE;
-	add_task(np);
+	//add_task(np); remove
 	return np->pid;
 }
 
@@ -314,7 +306,7 @@ int wait(int pid, int *code)
 			return -1;
 		}
 		p->state = RUNNABLE;
-		add_task(p);
+		//add_task(p); remove
 		sched();
 	}
 }
