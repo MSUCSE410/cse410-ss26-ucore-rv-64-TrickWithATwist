@@ -6,6 +6,8 @@
 
 #define NPROC (512)
 #define FD_BUFFER_SIZE (16)
+#define MAX_SYSCALL_NUM 500
+#define BIG_STRIDE 0x7FFFFFFF
 
 struct file;
 
@@ -45,6 +47,14 @@ struct proc {
 	uint64 exit_code;
 	struct file *files
 		[FD_BUFFER_SIZE]; //File descriptor table, using to record the files opened by the process
+	// PROJECT 1 & 2 ADDITIONS:
+	unsigned int syscall_times[500];
+	uint64 start_time;
+
+	// PROJECT 3: Stride scheduling
+	uint64 stride;
+	uint64 pass;
+	int priority;
 };
 
 int cpuid();
@@ -65,5 +75,18 @@ int init_stdio(struct proc *);
 int push_argv(struct proc *, char **);
 // swtch.S
 void swtch(struct context *, struct context *);
+
+typedef enum {
+	UnInit,
+	Ready,
+	Running,
+	Exited,
+} TaskStatus;
+
+typedef struct {
+	TaskStatus status;
+	unsigned int syscall_times[MAX_SYSCALL_NUM];
+	int time;
+} TaskInfo;
 
 #endif // PROC_H

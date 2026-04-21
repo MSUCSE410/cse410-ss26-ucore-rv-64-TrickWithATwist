@@ -5,6 +5,7 @@
 #include "syscall_ids.h"
 #include "timer.h"
 #include "trap.h"
+#include "proc.h"
 
 uint64 console_write(uint64 va, uint64 len)
 {
@@ -144,14 +145,34 @@ uint64 sys_wait(int pid, uint64 va)
 
 uint64 sys_spawn(uint64 va)
 {
-	// TODO: your job is to complete the sys call
-	return -1;
+	struct proc *p = curr_proc();
+	char name[200];
+	if (copyinstr(p->pagetable, name, va, 200) < 0)
+		return -1;
+	struct inode *ip = namei(name);
+	if (ip == 0)
+		return -1;
+	struct proc *np = allocproc();
+	if (np == NULL)
+		return -1;
+	init_stdio(np);
+	bin_loader(ip, np);
+	iput(ip);
+	np->parent = p;
+	np->state = RUNNABLE;
+	add_task(np);
+	return np->pid;
 }
 
 uint64 sys_set_priority(long long prio)
 {
-	// TODO: your job is to complete the sys call
-	return -1;
+	if (prio < 2) {
+		return -1;
+	}
+	struct proc *p = curr_proc();
+	p->priority = prio;
+	p->pass = BIG_STRIDE / prio;
+	return prio;
 }
 
 uint64 sys_openat(uint64 va, uint64 omode, uint64 _flags)
@@ -194,9 +215,70 @@ int sys_unlinkat(int dirfd, uint64 name, uint64 flags){
 
 extern char trap_page[];
 
+uint64 sys_task_info(uint64 ti_va)
+{
+	struct proc *p = curr_proc();
+	uint64 ti_pa = useraddr(p->pagetable, ti_va);
+	if (ti_pa == 0) {
+		return -1;
+	}
+	TaskInfo *ti = (TaskInfo *)ti_pa;
+	ti->status = Running;
+	for (int i = 0; i < 500; i++) {
+		ti->syscall_times[i] = p->syscall_times[i];
+	}
+	ti->time = ((get_cycle() - p->start_time) * 1000) / CPU_FREQ;
+	return 0;
+}
+
+uint64 sys_mmap(uint64 start, uint64 len, int prot, int flags, int fd)
+{
+	if (len == 0 || len > 1024 * 1024 * 1024) return -1;
+	if (start != PGROUNDDOWN(start)) return -1;
+	if ((prot & ~0x7) != 0) return -1;
+	if ((prot & 0x7) == 0) return -1;
+	struct proc *p = curr_proc();
+	int perm = PTE_U;
+	if (prot & 0x1) perm |= PTE_R;
+	if (prot & 0x2) perm |= PTE_W;
+	if (prot & 0x4) perm |= PTE_X;
+	uint64 start_page = PGROUNDDOWN(start);
+	uint64 end_page = PGROUNDUP(start + len);
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		if (walkaddr(p->pagetable, addr) != 0) return -1;
+		void *pa = kalloc();
+		if (pa == 0) return -1;
+		memset(pa, 0, PGSIZE);
+		if (mappages(p->pagetable, addr, PGSIZE, (uint64)pa, perm) != 0) {
+			kfree(pa);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+uint64 sys_munmap(uint64 start, uint64 len)
+{
+	if (len == 0) return -1;
+	if (start != PGROUNDDOWN(start)) return -1;
+	if (PGROUNDUP(start + len) != start + len) return -1;
+	struct proc *p = curr_proc();
+	uint64 start_page = PGROUNDDOWN(start);
+	uint64 end_page = PGROUNDUP(start + len);
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		if (walkaddr(p->pagetable, addr) == 0) return -1;
+	}
+	for (uint64 addr = start_page; addr < end_page; addr += PGSIZE) {
+		uvmunmap(p->pagetable, addr, 1, 1);
+	}
+	return 0;
+}
+
 void syscall()
 {
-	struct trapframe *trapframe = curr_proc()->trapframe;
+	struct proc *p = curr_proc();
+
+	struct trapframe *trapframe = p->trapframe;
 	int id = trapframe->a7, ret;
 	uint64 args[6] = { trapframe->a0, trapframe->a1, trapframe->a2,
 			   trapframe->a3, trapframe->a4, trapframe->a5 };
@@ -247,8 +329,21 @@ void syscall()
 		break;
 	case SYS_unlinkat:
 	    ret = sys_unlinkat(args[0],args[1],args[2]);
+		break;
 	case SYS_spawn:
 		ret = sys_spawn(args[0]);
+		break;
+	case SYS_task_info:
+		ret = sys_task_info(args[0]);
+		break;
+	case SYS_mmap:
+		ret = sys_mmap(args[0], args[1], args[2], args[3], args[4]);
+		break;
+	case SYS_munmap:
+		ret = sys_munmap(args[0], args[1]);
+		break;
+	case SYS_setpriority:
+		ret = sys_set_priority(args[0]);
 		break;
 	default:
 		ret = -1;
@@ -256,4 +351,8 @@ void syscall()
 	}
 	trapframe->a0 = ret;
 	tracef("syscall ret %d", ret);
+	// PROJECT 1: Update syscall counter
+	if (id < 500) {
+		p->syscall_times[id]++;
+	}
 }

@@ -4,6 +4,7 @@
 #include "trap.h"
 #include "vm.h"
 #include "queue.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];
@@ -37,6 +38,8 @@ void proc_init()
 		p->state = UNUSED;
 		p->kstack = (uint64)kstack[p - pool];
 		p->trapframe = (struct trapframe *)trapframe[p - pool];
+		memset(p->syscall_times, 0, sizeof(p->syscall_times));
+		p->start_time = 0;
 	}
 	idle.kstack = (uint64)boot_stack_top;
 	idle.pid = IDLE_PID;
@@ -96,6 +99,11 @@ found:
 	memset((void *)p->files, 0, sizeof(struct file *) * FD_BUFFER_SIZE);
 	p->context.ra = (uint64)usertrapret;
 	p->context.sp = p->kstack + KSTACK_SIZE;
+	memset(p->syscall_times, 0, sizeof(p->syscall_times));
+	p->start_time = 0;
+	p->stride = 0;
+	p->priority = 16;
+	p->pass = BIG_STRIDE / p->priority;
 	return p;
 }
 
@@ -118,30 +126,40 @@ int init_stdio(struct proc *p)
 void scheduler()
 {
 	struct proc *p;
+	struct proc *min_stride_proc;
+	uint64 min_stride;
+	
 	for (;;) {
-		/*int has_proc = 0;
+		min_stride_proc = NULL;
+		min_stride = UINT64_MAX;
+		
 		for (p = pool; p < &pool[NPROC]; p++) {
-			if (p->state == RUNNABLE) {
-				has_proc = 1;
-				tracef("swtich to proc %d", p - pool);
-				p->state = RUNNING;
-				current_proc = p;
-				swtch(&idle.context, &p->context);
+			if (p->state == RUNNABLE && p->stride < min_stride) {
+				min_stride = p->stride;
+				min_stride_proc = p;
 			}
 		}
-		if(has_proc == 0) {
-			panic("all app are over!\n");
-		}*/
-		p = fetch_task();
-		if (p == NULL) {
+		
+		if (min_stride_proc == NULL) {
 			panic("all app are over!\n");
 		}
-		tracef("swtich to proc %d", p - pool);
+		
+		p = min_stride_proc;
+		
+		if (p->start_time == 0) {
+			p->start_time = get_cycle();
+		}
+		
+		tracef("swtich to proc %d (stride=%d, priority=%d)", 
+		       p - pool, p->stride, p->priority);
+		
+		p->stride += p->pass;
 		p->state = RUNNING;
 		current_proc = p;
 		swtch(&idle.context, &p->context);
 	}
 }
+
 
 // Switch to scheduler.  Must hold only p->lock
 // and have changed proc->state. Saves and restores
@@ -162,7 +180,6 @@ void sched()
 void yield()
 {
 	current_proc->state = RUNNABLE;
-	add_task(current_proc);
 	sched();
 }
 
