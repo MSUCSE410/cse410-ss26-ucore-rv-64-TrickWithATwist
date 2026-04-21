@@ -37,6 +37,10 @@ struct superblock {
 #define NINDIRECT (BSIZE / sizeof(uint))
 #define MAXFILE (NDIRECT + NINDIRECT)
 
+//project 4
+#define DIR  0x040000
+#define FILE 0x100000
+
 // File type
 #define T_DIR 1 // Directory
 #define T_FILE 2 // File
@@ -44,13 +48,24 @@ struct superblock {
 // On-disk inode structure
 struct dinode {
 	short type; // File type
-	short pad[3];
+	short pad[2];
+	short nlink; // number of hard links
+	// sizeof(dinode) is unchanged - replaced one pad with nlink
 	// LAB4: you can reduce size of pad array and add link count below,
 	//       or you can just regard a pad as link count.
 	//       But keep in mind that you'd better keep sizeof(dinode) unchanged
 	uint size; // Size of file (bytes)
 	uint addrs[NDIRECT + 1]; // Data block addresses
 };
+
+//stat project 4 
+typedef struct {
+        uint64 dev;
+        uint64 ino;
+        uint32 mode;
+        uint32 nlink;
+        uint64 pad[7];
+} Stat;
 
 // Inodes per block.
 #define IPB (BSIZE / sizeof(struct dinode))
@@ -92,4 +107,5 @@ int readi(struct inode *, int, uint64, uint, uint);
 int writei(struct inode *, int, uint64, uint, uint);
 void itrunc(struct inode *);
 int dirls(struct inode *);
+int dirunlink(struct inode *, char *);
 #endif //!__FS_H__

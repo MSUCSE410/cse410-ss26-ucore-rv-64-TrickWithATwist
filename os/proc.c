@@ -131,7 +131,7 @@ void scheduler()
 	
 	for (;;) {
 		min_stride_proc = NULL;
-		min_stride = UINT64_MAX;
+		min_stride = 0xFFFFFFFFFFFFFFFFULL;
 		
 		for (p = pool; p < &pool[NPROC]; p++) {
 			if (p->state == RUNNABLE && p->stride < min_stride) {

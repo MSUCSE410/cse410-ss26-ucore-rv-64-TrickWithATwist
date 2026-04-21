@@ -198,19 +198,89 @@ uint64 sys_close(int fd)
 	return 0;
 }
 
-int sys_fstat(int fd,uint64 stat){
-	//TODO: your job is to complete the syscall
-	return -1;
+int sys_fstat(int fd, uint64 stat)
+{
+        if (fd < 0 || fd >= FD_BUFFER_SIZE)
+                return -1;
+        struct proc *p = curr_proc();
+        struct file *f = p->files[fd];
+        if (f == NULL || f->type != FD_INODE)
+                return -1;
+        // Validate user address
+        if (useraddr(p->pagetable, stat) == 0)
+                return -1;
+        struct inode *ip = f->ip;
+        ivalid(ip);
+        Stat st;
+        st.dev = ip->dev;
+        st.ino = ip->inum;
+        st.mode = (ip->type == T_DIR) ? DIR : FILE;
+        st.nlink = ip->nlink;
+        memset(st.pad, 0, sizeof(st.pad));
+        copyout(p->pagetable, stat, (char *)&st, sizeof(Stat));
+        return 0;
 }
 
-int sys_linkat(int olddirfd, uint64 oldpath, int newdirfd, uint64 newpath, uint64 flags){
-	//TODO: your job is to complete the syscall
-	return -1;
+int sys_linkat(int olddirfd, uint64 oldpath, int newdirfd, uint64 newpath, uint64 flags)
+{
+        struct proc *p = curr_proc();
+        char old[MAXPATH], new[MAXPATH];
+        if (copyinstr(p->pagetable, old, oldpath, MAXPATH) < 0)
+                return -1;
+        if (copyinstr(p->pagetable, new, newpath, MAXPATH) < 0)
+                return -1;
+        // Error: linking with the same name
+        if (strncmp(old, new, MAXPATH) == 0)
+                return -1;
+        // Find the old inode
+        struct inode *ip = namei(old);
+        if (ip == NULL)
+                return -1;
+        ivalid(ip);
+        // Only link regular files, not directories
+        if (ip->type == T_DIR) {
+                iput(ip);
+                return -1;
+        }
+        // Add new directory entry pointing to same inode
+        struct inode *dp = root_dir();
+        if (dirlink(dp, new, ip->inum) < 0) {
+                iput(ip);
+                iput(dp);
+                return -1;
+        }
+        // Increment link count
+        ip->nlink++;
+        iupdate(ip);
+        iput(ip);
+        iput(dp);
+        return 0;
 }
 
-int sys_unlinkat(int dirfd, uint64 name, uint64 flags){
-	//TODO: your job is to complete the syscall
-	return -1;
+int sys_unlinkat(int dirfd, uint64 name, uint64 flags)
+{
+        struct proc *p = curr_proc();
+        char path[MAXPATH];
+        if (copyinstr(p->pagetable, path, name, MAXPATH) < 0)
+                return -1;
+        // Find the inode
+        struct inode *ip = namei(path);
+        if (ip == NULL)
+                return -1;
+        ivalid(ip);
+        // Remove directory entry
+        struct inode *dp = root_dir();
+        if (dirunlink(dp, path) < 0) {
+                iput(ip);
+                iput(dp);
+                return -1;
+        }
+        // Decrement link count
+        ip->nlink--;
+        iupdate(ip);
+        iput(ip);
+        iput(dp);
+        return 0;
 }
 
 extern char trap_page[];
