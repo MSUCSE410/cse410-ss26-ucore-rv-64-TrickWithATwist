@@ -144,13 +144,27 @@ found:
 	p->next_condvar_id = 0;
 
 	// LAB5: (1) you may initialize your new proc variables here
+	// PROJECT 5: Initialize all deadlock detection fields to zero.
+        // Detection starts disabled so normal programs that never call
+        // enable_deadlock_detect() are completely unaffected.
+
 		p->deadlock_detect_enabled = 0;
+
+	// Zero out all detection matrices. Starting from zero is required
+        // because uninitialized memory could contain garbage values that
+        // would cause false deadlock detections the moment any lock is used.
 	for (int i = 0; i < LOCK_POOL_SIZE; i++) {
+		// No mutexes or semaphores exist yet, so nothing is available.
+        // These get set to real values in sys_mutex_create / sys_semaphore_create.
 		p->mutex_available[i] = 0;
 		p->sem_available[i] = 0;
 		for (int j = 0; j < NTHREAD; j++) {
+			// No thread holds any lock yet.
 			p->mutex_allocation[j][i] = 0;
+			// No thread is waiting for any lock yet.
 			p->mutex_request[j][i] = 0;
+
+			// Same for semaphores.
 			p->sem_allocation[j][i] = 0;
 			p->sem_request[j][i] = 0;
 		}

@@ -248,32 +248,52 @@ int deadlock_detect(const int available[LOCK_POOL_SIZE],
                     const int allocation[NTHREAD][LOCK_POOL_SIZE],
                     const int request[NTHREAD][LOCK_POOL_SIZE])
 {
+	//establish essential variables
+		// work[] simulates available resources as we pretend threads finish.
+        // We copy available so we don't modify the real state.
         int work[LOCK_POOL_SIZE];
+		// finish[tid] = 1 means we've determined this thread CAN finish.
         int finish[NTHREAD];
+
         for (int i = 0; i < LOCK_POOL_SIZE; i++)
                 work[i] = available[i];
         for (int i = 0; i < NTHREAD; i++)
                 finish[i] = 0;
 
+
         // Try to find a safe sequence
+		// Repeatedly scan all threads looking for one that can finish.
+        // A thread can finish if ALL of its requests can be satisfied
+        // by the currently available (work) resources.
+
         int changed = 1;
         while (changed) {
                 changed = 0;
                 for (int i = 0; i < NTHREAD; i++) {
-                        if (finish[i]) continue;
+                        if (finish[i]) continue; //skip
                         // Check if request[i] <= work
+
+						// Check if this thread's request can be fully satisfied.
                         int can_finish = 1;
                         for (int j = 0; j < LOCK_POOL_SIZE; j++) {
                                 if (request[i][j] > work[j]) {
                                         can_finish = 0;
+
+										// This thread needs more of resource j
+                                        // than is currently available.
                                         break;
                                 }
                         }
                         if (can_finish) {
                                 // This thread can finish, release its resources
+								// Simulate this thread finishing: it releases
+                                // all its currently allocated resources back
+                                // into the work pool for other threads to use.
                                 for (int j = 0; j < LOCK_POOL_SIZE; j++)
                                         work[j] += allocation[i][j];
                                 finish[i] = 1;
+								// Set changed=1 so we re-scan - a newly freed
+                                // resource might allow another thread to finish.
                                 changed = 1;
                         }
                 }
@@ -294,6 +314,10 @@ int sys_mutex_create(int blocking)
         }
         int mutex_id = m - curr_proc()->mutex_pool;
         // LAB5: (4-1) initialize detection variables
+		// PROJECT 5: Initialize this mutex's detection state.
+        // A freshly created mutex is unlocked, so available=1.
+        // No thread holds it (allocation=0) or wants it (request=0).
+
         struct proc *p = curr_proc();
         p->mutex_available[mutex_id] = 1;
         for (int i = 0; i < NTHREAD; i++) {
@@ -458,6 +482,10 @@ int sys_condvar_wait(int cond_id, int mutex_id)
 // LAB5: (2) you may need to define function enable_deadlock_detect here
 int sys_enable_deadlock_detect(int enabled)
 {
+		// Simply set the flag. All detection logic in sys_mutex_lock,
+        // sys_mutex_unlock, sys_semaphore_down, sys_semaphore_up checks
+        // this flag before doing anything.
+
         curr_proc()->deadlock_detect_enabled = enabled;
         return 0;
 }

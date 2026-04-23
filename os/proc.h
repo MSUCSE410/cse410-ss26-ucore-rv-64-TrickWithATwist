@@ -66,10 +66,22 @@ struct proc {
 	// LAB5: (1) Define your variables for deadlock detect here.
 	//			 You may need a flag to record if detection enabled,
 	//       and some arrays for detection algorithm.
+
+	// Flag set by sys_enable_deadlock_detect(1).
+	// When 0, all detection code is skipped - normal programs
+	// run at full speed without any overhead.
 	int deadlock_detect_enabled;
+
+	// MUTEX detection arrays:
+	// available[mutex_id] = 1 if the mutex is unlocked, 0 if locked.
+	// A mutex is binary - only 0 or 1 unit available at any time.
 	int mutex_available[LOCK_POOL_SIZE];
 	int mutex_allocation[NTHREAD][LOCK_POOL_SIZE];
 	int mutex_request[NTHREAD][LOCK_POOL_SIZE];
+
+	// SEMAPHORE detection arrays:
+	// available[sem_id] = current count of the semaphore (units available).
+	// Unlike mutexes, semaphores can start with count > 1 (e.g. semaphore_create(3)).
 	int sem_available[LOCK_POOL_SIZE];
 	int sem_allocation[NTHREAD][LOCK_POOL_SIZE];
 	int sem_request[NTHREAD][LOCK_POOL_SIZE];
