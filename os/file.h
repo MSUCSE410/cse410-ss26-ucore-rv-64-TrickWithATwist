@@ -18,10 +18,16 @@ struct inode {
 	uint size;
 	uint addrs[NDIRECT + 1];
 	// LAB4: You may need to add link count here
+	// PROJECT 4: In-memory copy of the hard link count from the on-disk dinode.
+	// Loaded by ivalid() when the inode is first read from disk.
+	// Modified by sys_linkat (++) and sys_unlinkat (--).
+	// Flushed back to disk by iupdate().
+	// When nlink reaches 0 and ref reaches 1, iput() deletes the file data.
 	uint nlink; // number of hard links
 };
 
-// Defines a file in memory that provides information about the current use of the file and the corresponding inode location
+// Defines a file in memory that provides information about the current use of the 
+// file and the corresponding inode location
 struct file {
 	enum { FD_NONE = 0, FD_INODE, FD_STDIO } type;
 	int ref; // reference count

@@ -58,13 +58,15 @@ struct dinode {
 	uint addrs[NDIRECT + 1]; // Data block addresses
 };
 
-//stat project 4 
+// PROJECT 4: Stat structure filled in by sys_fstat and returned to user programs.
+// Contains the metadata about a file that user programs need.
+// pad[7] is for compatibility with the standard stat structure layout.
 typedef struct {
-        uint64 dev;
-        uint64 ino;
-        uint32 mode;
-        uint32 nlink;
-        uint64 pad[7];
+        uint64 dev; // drive number of the disk where the file is located (always 0 here)
+        uint64 ino; // inode number - unique identifier for the file on this device
+        uint32 mode; // file type: DIR or FILE
+        uint32 nlink; // number of hard links pointing to this inode
+        uint64 pad[7]; // compatibility padding, ignored
 } Stat;
 
 // Inodes per block.
@@ -107,5 +109,9 @@ int readi(struct inode *, int, uint64, uint, uint);
 int writei(struct inode *, int, uint64, uint, uint);
 void itrunc(struct inode *);
 int dirls(struct inode *);
+
+// PROJECT 4: Declaration for new dirunlink function.
+// Removes a directory entry by name - the inverse of dirlink.
 int dirunlink(struct inode *, char *);
+
 #endif //!__FS_H__

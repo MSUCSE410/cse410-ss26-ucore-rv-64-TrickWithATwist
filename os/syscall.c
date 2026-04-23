@@ -198,38 +198,66 @@ uint64 sys_close(int fd)
 	return 0;
 }
 
+// Gets the status/metadata of an open file via its file descriptor.
+// The user program passes a pointer to a Stat struct which we fill in.
 int sys_fstat(int fd, uint64 stat)
 {
+		// Validate the file descriptor is within range.
         if (fd < 0 || fd >= FD_BUFFER_SIZE)
                 return -1;
         struct proc *p = curr_proc();
         struct file *f = p->files[fd];
+
+		// File descriptor must be open and must point to an inode-backed file.
+        // FD_STDIO (stdin/stdout/stderr) don't have inodes so we reject them.
         if (f == NULL || f->type != FD_INODE)
                 return -1;
-        // Validate user address
+
+        // Validate that the user's stat pointer is a legal virtual address.
+        // useraddr() translates VA->PA and returns 0 if the address is unmapped.
         if (useraddr(p->pagetable, stat) == 0)
                 return -1;
         struct inode *ip = f->ip;
+
+		// Make sure the inode's data has been loaded from disk.
+        // ivalid() is a no-op if the inode is already loaded (ip->valid==1).
         ivalid(ip);
+
+		// Fill in the Stat struct with the inode's metadata.
         Stat st;
-        st.dev = ip->dev;
-        st.ino = ip->inum;
+        st.dev = ip->dev; // which disk device
+        st.ino = ip->inum; // inode number (unique file ID on this device)
+
+		// Convert the internal type (T_DIR=1, T_FILE=2) to the user-facing
+        // mode flags (DIR=0x040000, FILE=0x100000) that test programs expect.
+
         st.mode = (ip->type == T_DIR) ? DIR : FILE;
         st.nlink = ip->nlink;
         memset(st.pad, 0, sizeof(st.pad));
+
+		// Copy the filled Stat struct from kernel space into user virtual memory.
+        // copyout() handles the VA->PA translation for the destination address.
         copyout(p->pagetable, stat, (char *)&st, sizeof(Stat));
         return 0;
 }
+
+// Creates a hard link - a second directory entry pointing to
+// the same inode as an existing file. After this call, both
+// oldpath and newpath refer to the exact same file data.
+// olddirfd, newdirfd, flags are ignored (always AT_FDCWD/0).
 
 int sys_linkat(int olddirfd, uint64 oldpath, int newdirfd, uint64 newpath, uint64 flags)
 {
         struct proc *p = curr_proc();
         char old[MAXPATH], new[MAXPATH];
+
+		// Copy both path strings from user virtual memory into kernel buffers.
         if (copyinstr(p->pagetable, old, oldpath, MAXPATH) < 0)
                 return -1;
         if (copyinstr(p->pagetable, new, newpath, MAXPATH) < 0)
                 return -1;
-        // Error: linking with the same name
+	
+        // Linking a file to itself (same name) is an error per the spec.
         if (strncmp(old, new, MAXPATH) == 0)
                 return -1;
         // Find the old inode

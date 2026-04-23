@@ -113,6 +113,11 @@ struct inode *ialloc(uint dev, short type)
 		dip = (struct dinode *)bp->data + inum % IPB;
 		if (dip->type == 0) { // a free inode
 			memset(dip, 0, sizeof(*dip));
+			// PROJECT 4: Every newly created file starts with nlink=1.
+			// This represents the single directory entry that was just
+			// created pointing to this inode. Without this, the inode
+			// would have nlink=0 and iput() would immediately delete it
+			// the first time it was released.
 			dip->nlink = 1; //proj 4 add
 			dip->type = type;
 			bwrite(bp);
@@ -138,6 +143,10 @@ void iupdate(struct inode *ip)
 	dip->type = ip->type;
 	dip->size = ip->size;
 	// LAB4: you may need to update link count here
+	//Sync the in-memory nlink back to disk.
+	// Whenever sys_linkat or sys_unlinkat changes ip->nlink,
+	// they call iupdate() to write it here. Without this line,
+	// link count changes would be lost on reboot.
 	dip->nlink = ip->nlink; //update link count
 	memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
 	bwrite(bp);
@@ -192,6 +201,13 @@ void ivalid(struct inode *ip)
 		ip->type = dip->type;
 		ip->size = dip->size;
 		// LAB4: You may need to get lint count here
+		// Load nlink from disk into the in-memory inode.
+		// The guard (> 0 ? : 1) handles old disk images that were
+		// built before nlink was added - those files have 0 in the
+		// nlink field (it used to be padding). Without this guard,
+		// iput() would see nlink==0 and immediately delete every
+		// file that existed before this change, causing "ivalid: no type"
+		// panics throughout the system.
 		ip->nlink = dip->nlink > 0 ? dip->nlink : 1; //lint count
 		memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
 		brelse(bp);
@@ -433,27 +449,39 @@ int dirlink(struct inode *dp, char *name, uint inum)
 
 // LAB4: You may want to add dirunlink here
 // Remove a directory entry by name from directory dp.
+// Removes a directory entry by name from directory dp.
+// This is the inverse of dirlink() - instead of adding an
+// entry, it finds the matching entry and zeroes it out.
+// A zeroed dirent (inum==0) marks the slot as available for reuse.
+// Returns 0 on success, -1 if the name is not found.
 int dirunlink(struct inode *dp, char *name)
 {
+		//establishing essential variables
         uint off;
         struct dirent de;
 
+		//edge case
         if (dp->type != T_DIR)
                 panic("dirunlink not DIR");
 
+		// Scan all directory entries looking for a matching name.
         for (off = 0; off < dp->size; off += sizeof(de)) {
                 if (readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
                         panic("dirunlink read");
+				// inum==0 means this slot is already empty, skip it.
                 if (de.inum == 0)
                         continue;
                 if (strncmp(name, de.name, DIRSIZ) == 0) {
+						// Found the entry. Zero it out to mark the slot empty.
+                        // inum=0 is the filesystem's convention for "no entry here".
                         memset(&de, 0, sizeof(de));
+						 // Write the zeroed entry back to disk.
                         if (writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
                                 panic("dirunlink write");
                         return 0;
                 }
         }
-        return -1; // not found
+        return -1; // name not found in directory
 }
 
 
